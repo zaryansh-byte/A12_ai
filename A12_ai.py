@@ -51,8 +51,10 @@ with st.sidebar:
             st.session_state.user_email = None
             st.session_state.user_tier = "Free Account"
             st.session_state.db_messages = 0
-            if st.session_state.user_email is None:
-                auth_mode = st.tabs(["🔑 Log In", "📝 Sign Up"])
+            st.session_state.window_started = None
+
+        if st.session_state.user_email is None:
+            auth_mode = st.tabs(["🔑 Log In", "📝 Sign Up"])
             
             # --- FIXED INDEXING: LOG IN ---
             with auth_mode:
@@ -68,6 +70,7 @@ with st.sidebar:
                         st.rerun()
                     else:
                         st.error("Account not found.")            
+            
             # --- FIXED INDEXING: SIGN UP ---
             with auth_mode:
                 reg_email = st.text_input("Email", key="reg_email")
