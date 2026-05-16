@@ -51,17 +51,16 @@ with st.sidebar:
             st.session_state.user_email = None
             st.session_state.user_tier = "Free Account"
             st.session_state.db_messages = 0
-            st.session_state.window_started = None
-
-        if st.session_state.user_email is None:
+            if st.session_state.user_email is None:
             auth_mode = st.tabs(["🔑 Log In", "📝 Sign Up"])
             
             # --- FIXED INDEXING: LOG IN ---
-            with auth_mode:
+            with auth_mode:  # <--- ADD HERE
                 login_email = st.text_input("Email", key="login_email")
                 if st.button("Access Engine"):
                     prof = supabase.table("user_profiles").select("*").eq("email", login_email).execute()
                     if prof.data:
+                        # Add to all of these lines below:
                         st.session_state.user_email = prof.data["email"]
                         st.session_state.user_tier = prof.data["tier"]
                         st.session_state.db_messages = prof.data["messages_sent"]
