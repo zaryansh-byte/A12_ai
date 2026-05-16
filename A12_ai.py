@@ -52,15 +52,14 @@ with st.sidebar:
             st.session_state.user_tier = "Free Account"
             st.session_state.db_messages = 0
             if st.session_state.user_email is None:
-            auth_mode = st.tabs(["🔑 Log In", "📝 Sign Up"])
+                auth_mode = st.tabs(["🔑 Log In", "📝 Sign Up"])
             
             # --- FIXED INDEXING: LOG IN ---
-            with auth_mode:  # <--- ADD HERE
+            with auth_mode:
                 login_email = st.text_input("Email", key="login_email")
                 if st.button("Access Engine"):
                     prof = supabase.table("user_profiles").select("*").eq("email", login_email).execute()
                     if prof.data:
-                        # Add to all of these lines below:
                         st.session_state.user_email = prof.data["email"]
                         st.session_state.user_tier = prof.data["tier"]
                         st.session_state.db_messages = prof.data["messages_sent"]
@@ -68,8 +67,7 @@ with st.sidebar:
                         st.success("Access Granted!")
                         st.rerun()
                     else:
-                        st.error("Account not found.")
-            
+                        st.error("Account not found.")            
             # --- FIXED INDEXING: SIGN UP ---
             with auth_mode:
                 reg_email = st.text_input("Email", key="reg_email")
