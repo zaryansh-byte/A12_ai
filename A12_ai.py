@@ -1,6 +1,6 @@
 import streamlit as st
 from google import genai
-from postgrest import SyncPostgrestClient
+from postgrest import AsyncPostgrestClient
 import os
 from dotenv import load_dotenv
 import stripe
@@ -21,7 +21,8 @@ def init_supabase():
     if not SUPABASE_URL or not SUPABASE_KEY:
         return None
     headers = {"Authorization": f"Bearer {SUPABASE_KEY}", "apikey": SUPABASE_KEY}
-    return SyncPostgrestClient(f"{SUPABASE_URL}/rest/v1", headers=headers)
+    # Using AsyncPostgrestClient for better compatibility with Streamlit
+    return AsyncPostgrestClient(f"{SUPABASE_URL}/rest/v1", headers=headers)
 
 supabase = init_supabase()
 
@@ -56,54 +57,72 @@ with st.sidebar:
         if st.session_state.user_email is None:
             auth_mode = st.tabs(["🔑 Log In", "📝 Sign Up"])
             
-            # --- FIXED INDEXING: LOG IN ---
-            with auth_mode:
+            # --- LOG IN TAB ---
+            with auth_mode[0]:
                 login_email = st.text_input("Email", key="login_email")
-                if st.button("Access Engine"):
-                    prof = supabase.table("user_profiles").select("*").eq("email", login_email).execute()
-                    if prof.data:
-                        st.session_state.user_email = prof.data["email"]
-                        st.session_state.user_tier = prof.data["tier"]
-                        st.session_state.db_messages = prof.data["messages_sent"]
-                        st.session_state.window_started = prof.data.get("window_started_at")
-                        st.success("Access Granted!")
-                        st.rerun()
-                    else:
-                        st.error("Account not found.")            
+                if st.button("Access Engine", key="login_btn"):
+                    try:
+                        prof = supabase.table("user_profiles").select("*").eq("email", login_email).execute()
+                        if prof.data and len(prof.data) > 0:
+                            user_data = prof.data[0]
+                            st.session_state.user_email = user_data.get("email")
+                            st.session_state.user_tier = user_data.get("tier", "Free Account")
+                            st.session_state.db_messages = user_data.get("messages_sent", 0)
+                            st.session_state.window_started = user_data.get("window_started_at")
+                            st.success("Access Granted!")
+                            st.rerun()
+                        else:
+                            st.error("Account not found.")
+                    except Exception as e:
+                        st.error(f"Login error: {e}")
             
-            # --- FIXED INDEXING: SIGN UP ---
-            with auth_mode:
+            # --- SIGN UP TAB ---
+            with auth_mode[1]:
                 reg_email = st.text_input("Email", key="reg_email")
-                if st.button("Create Account"):
-                    current_now = datetime.now(timezone.utc).isoformat()
-                    supabase.table("user_profiles").insert({
-                        "email": reg_email,
-                        "tier": "Free Account",
-                        "messages_sent": 0,
-                        "window_started_at": current_now
-                    }).execute()
-                    st.session_state.user_email = reg_email
-                    st.session_state.user_tier = "Free Account"
-                    st.session_state.db_messages = 0
-                    st.session_state.window_started = current_now
-                    st.success("Account constructed!")
-                    st.rerun()
+                if st.button("Create Account", key="signup_btn"):
+                    try:
+                        # Check if email already exists
+                        existing = supabase.table("user_profiles").select("*").eq("email", reg_email).execute()
+                        if existing.data and len(existing.data) > 0:
+                            st.error("Email already registered.")
+                        else:
+                            current_now = datetime.now(timezone.utc).isoformat()
+                            supabase.table("user_profiles").insert({
+                                "email": reg_email,
+                                "tier": "Free Account",
+                                "messages_sent": 0,
+                                "window_started_at": current_now
+                            }).execute()
+                            st.session_state.user_email = reg_email
+                            st.session_state.user_tier = "Free Account"
+                            st.session_state.db_messages = 0
+                            st.session_state.window_started = current_now
+                            st.success("Account constructed!")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Signup error: {e}")
+            
             user_authenticated = False
         else:
             st.success(f"📟 Connected: {st.session_state.user_email}")
             
             # Check 24-hour window expiration and reset counter dynamically
             if st.session_state.window_started:
-                start_time = datetime.fromisoformat(st.session_state.window_started.replace('Z', '+00:00'))
-                hours_passed = (datetime.now(timezone.utc) - start_time).total_seconds() / 3600
-                
-                if hours_passed >= 24:
-                    st.session_state.db_messages = 0
+                try:
+                    start_time = datetime.fromisoformat(st.session_state.window_started.replace('Z', '+00:00'))
+                    hours_passed = (datetime.now(timezone.utc) - start_time).total_seconds() / 3600
+                    
+                    if hours_passed >= 24:
+                        st.session_state.db_messages = 0
+                        st.session_state.window_started = datetime.now(timezone.utc).isoformat()
+                        supabase.table("user_profiles").update({
+                            "messages_sent": 0,
+                            "window_started_at": st.session_state.window_started
+                        }).eq("email", st.session_state.user_email).execute()
+                except ValueError:
+                    # Handle malformed timestamp
+                    st.warning("Timestamp format issue. Resetting window.")
                     st.session_state.window_started = datetime.now(timezone.utc).isoformat()
-                    supabase.table("user_profiles").update({
-                        "messages_sent": 0,
-                        "window_started_at": st.session_state.window_started
-                    }).eq("email", st.session_state.user_email).execute()
             
             if st.session_state.user_tier == "Premium VIP Account":
                 st.success("🔥 Tier: Premium VIP Unlocked!")
@@ -122,7 +141,7 @@ with st.sidebar:
                             )
                             st.markdown(f"[👉 Click Here to Pay Securely via Stripe]({checkout_session.url})")
                         except Exception as e:
-                            st.error(f"Stripe Loop Error: {e}")
+                            st.error(f"Stripe error: {e}")
             
             st.metric(label="Messages Sent (Current 24h Window)", value=f"{st.session_state.db_messages} / 100")
             
@@ -170,9 +189,14 @@ if user_prompt := st.chat_input("Dispatch command..."):
                 
                 with st.chat_message("assistant"):
                     with st.spinner("Processing..."):
-                        response = client.models.generate_content(model=target_model, contents=user_prompt, config={"system_instruction": SYSTEM_INSTRUCTION})
+                        response = client.models.generate_content(
+                            model=target_model,
+                            contents=user_prompt,
+                            config={"system_instruction": SYSTEM_INSTRUCTION}
+                        )
                         st.markdown(response.text)
                         st.session_state.messages.append({"role": "assistant", "content": response.text})
                         st.rerun()
             except Exception as e:
-                st.error(f"❌ Core Error: {e}")
+                with st.chat_message("assistant"):
+                    st.error(f"❌ Core Error: {e}")
