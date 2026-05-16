@@ -2,3 +2,4 @@ streamlit
 google-genai
 postgrest
 python-dotenv
+stripe
